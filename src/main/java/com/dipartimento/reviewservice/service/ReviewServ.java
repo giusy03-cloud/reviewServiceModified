@@ -7,13 +7,16 @@ import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
+
 
 @Service
-public class ReviewServ{
+public class ReviewServ {
 
     @Autowired
     private ReviewRepository reviewRepository;
@@ -23,7 +26,8 @@ public class ReviewServ{
 
     private final String AUTH_ME_URL = "http://localhost:8080/auth/me";       // User service endpoint per token validation
     private final String EVENT_SERVICE_URL = "http://localhost:8081/events";  // Event service endpoint
-    private final String BOOKING_CHECK_URL = "http://localhost:8083/api/bookings/check"; // nuovo endpoint
+    private final String BOOKING_CHECK_URL = "http://localhost:8083/api/bookings/check"; // Booking check endpoint
+
     public List<Review> getAllReviews() {
         return reviewRepository.findAll();
     }
@@ -54,7 +58,6 @@ public class ReviewServ{
 
             UsersAccounts user = response.getBody();
             return user != null && user.getId() == userId;
-            // puoi aggiungere controllo ruolo se vuoi
         } catch (Exception e) {
             e.printStackTrace();
             return false;
@@ -64,17 +67,24 @@ public class ReviewServ{
     /**
      * Verifica se l'evento esiste chiamando il microservizio Event
      */
+
     public boolean isEventExists(Long eventId) {
         try {
             String url = EVENT_SERVICE_URL + "/public/" + eventId;
+            System.out.println("[DEBUG] Chiamata a: " + url);
             ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
+            System.out.println("[DEBUG] Status risposta evento: " + response.getStatusCode());
             return response.getStatusCode().is2xxSuccessful();
         } catch (Exception e) {
-            e.printStackTrace();
+            System.err.println("[ERRORE] Chiamata evento fallita: " + e.getMessage());
             return false;
         }
     }
 
+
+    /**
+     * Verifica se l'utente ha prenotato l'evento
+     */
     public boolean hasUserBookedEvent(Long userId, Long eventId, String token) {
         try {
             String url = BOOKING_CHECK_URL + "?userId=" + userId + "&eventId=" + eventId;
@@ -102,11 +112,29 @@ public class ReviewServ{
             return false;
         }
     }
+
     @Transactional
     public void deleteReviewsByUserId(Long userId) {
         reviewRepository.deleteByUserId(userId);
     }
 
 
+    public boolean isEventInPast(Long eventId) {
+        try {
+            String url = EVENT_SERVICE_URL + "/public/" + eventId;
+            ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
 
+            if (response.getStatusCode().is2xxSuccessful()) {
+                Map<String, Object> eventData = response.getBody();
+                if (eventData != null && eventData.containsKey("date")) {
+                    String dateStr = (String) eventData.get("date"); // esempio: "2025-07-20"
+                    LocalDate eventDate = LocalDate.parse(dateStr, DateTimeFormatter.ISO_DATE);
+                    return eventDate.isBefore(LocalDate.now());
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return false;
+    }
 }

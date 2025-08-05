@@ -1,27 +1,28 @@
 package com.dipartimento.reviewservice.controller;
 
+
 import com.dipartimento.reviewservice.dto.ReviewDTO;
 import com.dipartimento.reviewservice.model.Review;
 import com.dipartimento.reviewservice.repository.ReviewRepository;
-import com.dipartimento.reviewservice.security.util.JwtUtil;
 import com.dipartimento.reviewservice.service.ReviewServ;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 
 import java.util.List;
-import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping("/reviews")
+@RequestMapping("/api/reviews")
 public class ReviewController {
 
     private final ReviewRepository repository;
-    private final ReviewServ reviewServ;
+    private final ReviewServ reviewService;
 
-    public ReviewController(ReviewRepository repository, ReviewServ reviewServ) {
+    @Autowired
+    public ReviewController(ReviewRepository repository, ReviewServ reviewService) {
         this.repository = repository;
-        this.reviewServ = reviewServ;
+        this.reviewService = reviewService;
     }
 
     @PostMapping
@@ -29,39 +30,40 @@ public class ReviewController {
             @RequestBody ReviewDTO dto,
             @RequestHeader("Authorization") String authHeader) {
 
-        System.out.println("createReview: ricevuta richiesta per userId=" + dto.getUserId() + ", eventId=" + dto.getEventId());
+        System.out.println("[DEBUG] createReview dto: " + dto);
 
-        // Verifica header
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            System.out.println("createReview: token mancante o malformato");
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token mancante o malformato");
         }
 
         String token = authHeader.substring(7);
-        System.out.println("createReview: token estratto");
 
-        // 1. Verifica autenticazione
-        if (!reviewServ.isUserAuthenticated(dto.getUserId(), token)) {
-            System.out.println("createReview: utente non autenticato");
+        if (!reviewService.isUserAuthenticated(dto.getUserId(), token)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Utente non autorizzato");
         }
-        System.out.println("createReview: utente autenticato");
 
-        // 2. Verifica che l'evento esista
-        if (!reviewServ.isEventExists(dto.getEventId())) {
-            System.out.println("createReview: evento non trovato");
+        if (dto.getEventId() == null) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("eventId mancante");
+        }
+
+
+        if (!reviewService.isEventExists(dto.getEventId())) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Evento non trovato");
         }
-        System.out.println("createReview: evento trovato");
 
-        // 3. Verifica che l'utente abbia prenotato l'evento
-        if (!reviewServ.hasUserBookedEvent(dto.getUserId(), dto.getEventId(), token)) {
-            System.out.println("createReview: utente non ha prenotato l'evento");
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Non puoi recensire un evento che non hai prenotato");
+        if (!reviewService.hasUserBookedEvent(dto.getUserId(), dto.getEventId(), token)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Non hai prenotato questo evento");
         }
-        System.out.println("createReview: utente ha prenotato l'evento");
 
-        // 4. Crea e salva la recensione
+        if (!reviewService.isEventInPast(dto.getEventId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Puoi recensire solo a partire dal giorno successivo all'evento.");
+        }
+
+        if (repository.existsByUserIdAndEventId(dto.getUserId(), dto.getEventId())) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body("Hai già recensito questo evento.");
+        }
+
+
         Review review = new Review();
         review.setEventId(dto.getEventId());
         review.setUserId(dto.getUserId());
@@ -69,124 +71,48 @@ public class ReviewController {
         review.setComment(dto.getComment());
 
         Review saved = repository.save(review);
-        System.out.println("createReview: recensione salvata con id=" + saved.getId());
-
-        return ResponseEntity.ok(saved);
-    }
-
-    //metodo per richieste da html
-    @PostMapping("/form")
-    public ResponseEntity<Review> submitReview(@RequestParam Long eventId, @RequestParam Long userId, @RequestParam int rating, @RequestParam String comment) {
-        System.out.println("submitReview: richiesta ricevita per userId=" + userId + ", eventId=" + eventId);
-
-        Review review = new Review();
-        review.setEventId(eventId);
-        review.setUserId(userId);
-        review.setRating(rating);
-        review.setComment(comment);
-
-        repository.save(review); // Salvo la recensione nel DB
-        System.out.println("submitReview: recensione salvata");
-
-        return ResponseEntity.ok(review); // Ritorno una risposta OK con l'oggetto Review
+        return ResponseEntity.status(HttpStatus.CREATED).body(saved);
     }
 
     @GetMapping
     public List<Review> getAllReviews() {
-        System.out.println("getAllReviews: richiesta per tutte le recensioni");
         return repository.findAll();
     }
 
     @GetMapping("/event/{eventId}")
     public List<Review> getReviewsByEvent(@PathVariable Long eventId) {
-        System.out.println("getReviewsByEvent: richiesta recensioni per evento " + eventId);
         return repository.findByEventId(eventId);
-    }
-
-    @PutMapping("/{id}")
-    public ResponseEntity<?> updateReview(@PathVariable Long id,
-                                          @RequestBody Review updatedReview,
-                                          @RequestHeader("Authorization") String authHeader) {
-        try {
-            System.out.println("UpdateReview: richiesta di aggiornamento recensione con id = " + id);
-
-            // Estraggo token JWT dall'header
-            String token = authHeader.replace("Bearer ", "");
-            System.out.println("Token ricevuto: " + token);
-
-            Long userIdFromToken = JwtUtil.extractUserId(token);
-            System.out.println("UserId estratto dal token: " + userIdFromToken);
-
-            // Cerco la recensione esistente
-            Review existingReview = repository.findById(id).orElse(null);
-            if (existingReview == null) {
-                System.out.println("Recensione con id " + id + " non trovata");
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Recensione non trovata");
-            }
-
-            System.out.println("Recensione trovata con userId = " + existingReview.getUserId());
-
-            // Controllo che chi fa la richiesta sia il proprietario della recensione
-            if (!existingReview.getUserId().equals(userIdFromToken)) {
-                System.out.println("Utente non autorizzato: userId token = " + userIdFromToken + ", userId recensione = " + existingReview.getUserId());
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Non sei autorizzato ad aggiornare questa recensione");
-            }
-
-            System.out.println("Aggiornamento commento da '" + existingReview.getComment() + "' a '" + updatedReview.getComment() + "'");
-            System.out.println("Aggiornamento rating da '" + existingReview.getRating() + "' a '" + updatedReview.getRating() + "'");
-
-            // Aggiorno i campi modificabili (esempio: comment e rating)
-            existingReview.setComment(updatedReview.getComment());
-            existingReview.setRating(updatedReview.getRating());
-
-            // Salvo la recensione aggiornata
-            repository.save(existingReview);
-            System.out.println("Recensione aggiornata salvata con successo");
-
-            return ResponseEntity.ok(existingReview);
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Errore durante l'aggiornamento");
-        }
-    }
-
-    @DeleteMapping("/{id}")
-    public ResponseEntity<?> deleteReview(@PathVariable Long id,
-                                          @RequestHeader("Authorization") String authHeader) {
-        try {
-            String token = authHeader.replace("Bearer ", "");
-            Long userIdFromToken = JwtUtil.extractUserId(token);
-            String role = JwtUtil.extractUserRole(token);
-
-            Review review = repository.findById(id).orElse(null);
-            if (review == null) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Recensione non trovata");
-            }
-
-            // Controllo autorizzazione
-            if (!review.getUserId().equals(userIdFromToken) && !"ORGANIZER".equals(role)) {
-                return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Non sei autorizzato a cancellare questa recensione");
-            }
-
-            repository.deleteById(id);
-            return ResponseEntity.ok("Recensione cancellata con successo");
-
-        } catch (Exception e) {
-            e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Errore interno del server");
-        }
     }
 
     @DeleteMapping("/user/{userId}")
     public ResponseEntity<?> deleteReviewsByUserId(@PathVariable Long userId) {
-        System.out.println("Eliminazione recensioni per userId: " + userId);
-        repository.deleteByUserId(userId); // assicurati che esista questo metodo nel repository!
+        reviewService.deleteReviewsByUserId(userId);
         return ResponseEntity.ok("Recensioni eliminate");
     }
 
+    @GetMapping("/can-review")
+    public ResponseEntity<?> canUserReview(@RequestParam Long userId,
+                                           @RequestParam Long eventId,
+                                           @RequestHeader("Authorization") String authHeader) {
 
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token mancante");
+        }
 
+        String token = authHeader.substring(7);
 
+        boolean isAuthenticated = reviewService.isUserAuthenticated(userId, token);
+        boolean hasBooked = reviewService.hasUserBookedEvent(userId, eventId, token);
+        boolean eventInPast = reviewService.isEventInPast(eventId);
+
+        boolean canReview = isAuthenticated && hasBooked && eventInPast;
+
+        return ResponseEntity.ok(canReview);
+    }
+
+    @GetMapping("/user/{userId}/event/{eventId}")
+    public List<Review> getUserReviewsForEvent(@PathVariable Long userId, @PathVariable Long eventId) {
+        return repository.findByUserIdAndEventId(userId, eventId);
+    }
 
 }
