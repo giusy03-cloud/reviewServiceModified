@@ -79,40 +79,55 @@ public class ReviewController {
         return repository.findAll();
     }
 
+
     @GetMapping("/event/{eventId}")
-    public List<Review> getReviewsByEvent(@PathVariable Long eventId) {
-        return repository.findByEventId(eventId);
-    }
-
-    @DeleteMapping("/user/{userId}")
-    public ResponseEntity<?> deleteReviewsByUserId(@PathVariable Long userId) {
-        reviewService.deleteReviewsByUserId(userId);
-        return ResponseEntity.ok("Recensioni eliminate");
-    }
-
-    @GetMapping("/can-review")
-    public ResponseEntity<?> canUserReview(@RequestParam Long userId,
-                                           @RequestParam Long eventId,
-                                           @RequestHeader("Authorization") String authHeader) {
-
+    public ResponseEntity<?> getReviewsByEvent(@PathVariable Long eventId,
+                                               @RequestHeader("Authorization") String authHeader) {
         if (authHeader == null || !authHeader.startsWith("Bearer ")) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token mancante");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token mancante o malformato");
         }
 
         String token = authHeader.substring(7);
+        Long userId = reviewService.extractUserIdFromToken(token); // da implementare
 
-        boolean isAuthenticated = reviewService.isUserAuthenticated(userId, token);
+        boolean isOrganizer = reviewService.isUserOrganizerOfEvent(userId, eventId, token); // da implementare
         boolean hasBooked = reviewService.hasUserBookedEvent(userId, eventId, token);
-        boolean eventInPast = reviewService.isEventInPast(eventId);
 
-        boolean canReview = isAuthenticated && hasBooked && eventInPast;
+        if (!isOrganizer && !hasBooked) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Accesso negato alle recensioni");
+        }
 
-        return ResponseEntity.ok(canReview);
+        return ResponseEntity.ok(repository.findByEventId(eventId));
     }
 
-    @GetMapping("/user/{userId}/event/{eventId}")
-    public List<Review> getUserReviewsForEvent(@PathVariable Long userId, @PathVariable Long eventId) {
-        return repository.findByUserIdAndEventId(userId, eventId);
+
+
+
+    @DeleteMapping("/user/{userId}/event/{eventId}")
+    public ResponseEntity<?> deleteReviewsByUserIdAndEvent(
+            @PathVariable Long userId,
+            @PathVariable Long eventId,
+            @RequestHeader("Authorization") String authHeader) {
+
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token mancante o malformato");
+        }
+
+        String token = authHeader.substring(7);
+        Long loggedUserId = reviewService.extractUserIdFromToken(token);
+
+        boolean isOrganizer = reviewService.isUserOrganizerOfEvent(loggedUserId, eventId, token);
+
+        if (!userId.equals(loggedUserId) && !isOrganizer) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Non autorizzato");
+        }
+
+        reviewService.deleteReviewsByUserIdAndEventId(userId, eventId);  // dovrai implementare questo metodo nel service/repository
+        return ResponseEntity.ok("Recensioni eliminate");
     }
+
+
+
+
 
 }

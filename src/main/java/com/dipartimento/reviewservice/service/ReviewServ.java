@@ -1,5 +1,6 @@
 package com.dipartimento.reviewservice.service;
 
+import com.dipartimento.reviewservice.dto.EventDTO;
 import com.dipartimento.reviewservice.dto.UsersAccounts;
 import com.dipartimento.reviewservice.model.Review;
 import com.dipartimento.reviewservice.repository.ReviewRepository;
@@ -7,6 +8,7 @@ import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDate;
@@ -119,22 +121,99 @@ public class ReviewServ {
     }
 
 
+
+
+
     public boolean isEventInPast(Long eventId) {
         try {
             String url = EVENT_SERVICE_URL + "/public/" + eventId;
-            ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
+            ResponseEntity<EventDTO> response = restTemplate.getForEntity(url, EventDTO.class);
 
-            if (response.getStatusCode().is2xxSuccessful()) {
-                Map<String, Object> eventData = response.getBody();
-                if (eventData != null && eventData.containsKey("date")) {
-                    String dateStr = (String) eventData.get("date"); // esempio: "2025-07-20"
-                    LocalDate eventDate = LocalDate.parse(dateStr, DateTimeFormatter.ISO_DATE);
-                    return eventDate.isBefore(LocalDate.now());
-                }
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                EventDTO event = response.getBody();
+                return Boolean.TRUE.equals(event.isArchived());
             }
-        } catch (Exception e) {
-            e.printStackTrace();
+
+        } catch (RestClientException e) {
+            System.out.println("Errore nel recuperare evento: " + e.getMessage());
         }
+
         return false;
     }
+
+    public Long extractUserIdFromToken(String token) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Authorization", "Bearer " + token);
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+            ResponseEntity<UsersAccounts> response = restTemplate.exchange(
+                    AUTH_ME_URL,
+                    HttpMethod.GET,
+                    entity,
+                    UsersAccounts.class
+            );
+
+            UsersAccounts user = response.getBody();
+            return user != null ? user.getId() : null;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    public boolean hasRole(String token, String role) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Authorization", "Bearer " + token);
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+            ResponseEntity<UsersAccounts> response = restTemplate.exchange(
+                    AUTH_ME_URL,
+                    HttpMethod.GET,
+                    entity,
+                    UsersAccounts.class
+            );
+
+            UsersAccounts user = response.getBody();
+            return user != null && role.equalsIgnoreCase(user.getRole());
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    public boolean isUserOrganizerOfEvent(Long userId, Long eventId, String token) {
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Authorization", "Bearer " + token);
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+            String url = EVENT_SERVICE_URL + "/" + eventId;
+            ResponseEntity<EventDTO> response = restTemplate.exchange(
+                    url,
+                    HttpMethod.GET,
+                    entity,
+                    EventDTO.class
+            );
+
+            EventDTO event = response.getBody();
+            return event != null && event.getOrganizerId() != null && event.getOrganizerId().equals(userId);
+        } catch (RestClientException e) {
+            System.err.println("[ERRORE] Chiamata fallita per organizer: " + e.getMessage());
+            return false;
+        }
+    }
+
+
+
+    @Transactional
+    public void deleteReviewsByUserIdAndEventId(Long userId, Long eventId) {
+        reviewRepository.deleteByUserIdAndEventId(userId, eventId);
+    }
+
+
+
+
+
 }

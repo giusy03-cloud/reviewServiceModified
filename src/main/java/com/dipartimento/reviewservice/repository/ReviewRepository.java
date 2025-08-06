@@ -23,4 +23,8 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
     void deleteByUserId(Long userId);
 
     boolean existsByUserIdAndEventId(Long userId, Long eventId);
+
+    @Transactional
+    void deleteByUserIdAndEventId(Long userId, Long eventId);
+
 }
