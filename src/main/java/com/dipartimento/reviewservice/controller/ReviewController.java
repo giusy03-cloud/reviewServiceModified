@@ -80,6 +80,8 @@ public class ReviewController {
     }
 
 
+
+
     @GetMapping("/event/{eventId}")
     public ResponseEntity<?> getReviewsByEvent(@PathVariable Long eventId,
                                                @RequestHeader("Authorization") String authHeader) {
@@ -88,17 +90,22 @@ public class ReviewController {
         }
 
         String token = authHeader.substring(7);
-        Long userId = reviewService.extractUserIdFromToken(token); // da implementare
+        Long userId = reviewService.extractUserIdFromToken(token);
 
-        boolean isOrganizer = reviewService.isUserOrganizerOfEvent(userId, eventId, token); // da implementare
+        boolean isOrganizer = reviewService.isUserOrganizerOfEvent(userId, eventId, token);
         boolean hasBooked = reviewService.hasUserBookedEvent(userId, eventId, token);
+        boolean hasRoleOrganizer = reviewService.hasRole(token, "ORGANIZER");
 
-        if (!isOrganizer && !hasBooked) {
+        System.out.println("[DEBUG] userId: " + userId + ", isOrganizer: " + isOrganizer + ", hasBooked: " + hasBooked + ", hasRoleOrganizer: " + hasRoleOrganizer);
+
+        // Consenti accesso se è organizzatore dell'evento, oppure ha prenotato, oppure ha ruolo ORGANIZER
+        if (!isOrganizer && !hasBooked && !hasRoleOrganizer) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body("Accesso negato alle recensioni");
         }
 
         return ResponseEntity.ok(repository.findByEventId(eventId));
     }
+
 
 
 
@@ -125,6 +132,23 @@ public class ReviewController {
         reviewService.deleteReviewsByUserIdAndEventId(userId, eventId);  // dovrai implementare questo metodo nel service/repository
         return ResponseEntity.ok("Recensioni eliminate");
     }
+
+
+
+
+    @GetMapping("/me")
+    public ResponseEntity<?> getMyReviews(@RequestHeader("Authorization") String authHeader) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Token mancante o malformato");
+        }
+
+        String token = authHeader.substring(7);
+        Long userId = reviewService.extractUserIdFromToken(token);
+
+        return ResponseEntity.ok(repository.findByUserId(userId));
+    }
+
+
 
 
 

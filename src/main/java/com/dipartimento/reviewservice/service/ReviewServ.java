@@ -70,12 +70,12 @@ public class ReviewServ {
      * Verifica se l'evento esiste chiamando il microservizio Event
      */
 
+
     public boolean isEventExists(Long eventId) {
         try {
-            String url = EVENT_SERVICE_URL + "/public/" + eventId;
+            String url = EVENT_SERVICE_URL + "/internal/" + eventId;
             System.out.println("[DEBUG] Chiamata a: " + url);
-            ResponseEntity<String> response = restTemplate.getForEntity(url, String.class);
-            System.out.println("[DEBUG] Status risposta evento: " + response.getStatusCode());
+            ResponseEntity<EventDTO> response = restTemplate.getForEntity(url, EventDTO.class);
             return response.getStatusCode().is2xxSuccessful();
         } catch (Exception e) {
             System.err.println("[ERRORE] Chiamata evento fallita: " + e.getMessage());
@@ -84,15 +84,17 @@ public class ReviewServ {
     }
 
 
+
     /**
      * Verifica se l'utente ha prenotato l'evento
      */
+
     public boolean hasUserBookedEvent(Long userId, Long eventId, String token) {
         try {
             String url = BOOKING_CHECK_URL + "?userId=" + userId + "&eventId=" + eventId;
 
-            System.out.println("📡 [DEBUG] Chiamata a BookingService: " + url);
-            System.out.println("🔐 [DEBUG] Token usato: " + token);
+            System.out.println("[DEBUG] Chiamata a BookingService: " + url);
+            System.out.println("[DEBUG] Token usato: " + token);
 
             HttpHeaders headers = new HttpHeaders();
             headers.set("Authorization", "Bearer " + token);
@@ -105,15 +107,17 @@ public class ReviewServ {
                     Boolean.class
             );
 
-            System.out.println("✅ [DEBUG] Risposta da BookingService: " + response.getStatusCode() + " - " + response.getBody());
+            Boolean booked = response.getBody();
+            System.out.println("[DEBUG] BookingService risposta: " + response.getStatusCode() + ", booked: " + booked);
 
-            return Boolean.TRUE.equals(response.getBody());
+            return Boolean.TRUE.equals(booked);
         } catch (Exception e) {
-            System.err.println("❌ [ERRORE] Eccezione nella chiamata a BookingService:");
+            System.err.println("[ERRORE] Eccezione nella chiamata a BookingService: " + e.getMessage());
             e.printStackTrace();
             return false;
         }
     }
+
 
     @Transactional
     public void deleteReviewsByUserId(Long userId) {
@@ -124,22 +128,24 @@ public class ReviewServ {
 
 
 
+
     public boolean isEventInPast(Long eventId) {
         try {
-            String url = EVENT_SERVICE_URL + "/public/" + eventId;
+            String url = EVENT_SERVICE_URL + "/internal/" + eventId;
             ResponseEntity<EventDTO> response = restTemplate.getForEntity(url, EventDTO.class);
 
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                 EventDTO event = response.getBody();
+
                 return Boolean.TRUE.equals(event.isArchived());
             }
-
         } catch (RestClientException e) {
             System.out.println("Errore nel recuperare evento: " + e.getMessage());
         }
 
         return false;
     }
+
 
     public Long extractUserIdFromToken(String token) {
         try {
@@ -183,6 +189,7 @@ public class ReviewServ {
         }
     }
 
+
     public boolean isUserOrganizerOfEvent(Long userId, Long eventId, String token) {
         try {
             HttpHeaders headers = new HttpHeaders();
@@ -190,6 +197,8 @@ public class ReviewServ {
             HttpEntity<Void> entity = new HttpEntity<>(headers);
 
             String url = EVENT_SERVICE_URL + "/" + eventId;
+            System.out.println("[DEBUG] Chiamata a: " + url + " per verificare organizer con userId=" + userId);
+
             ResponseEntity<EventDTO> response = restTemplate.exchange(
                     url,
                     HttpMethod.GET,
@@ -198,12 +207,16 @@ public class ReviewServ {
             );
 
             EventDTO event = response.getBody();
-            return event != null && event.getOrganizerId() != null && event.getOrganizerId().equals(userId);
+
+            boolean isOrganizer = event != null && event.getOrganizerId() != null && event.getOrganizerId().equals(userId);
+            System.out.println("[DEBUG] Evento trovato: " + event + ", isOrganizer: " + isOrganizer);
+            return isOrganizer;
         } catch (RestClientException e) {
             System.err.println("[ERRORE] Chiamata fallita per organizer: " + e.getMessage());
             return false;
         }
     }
+
 
 
 
