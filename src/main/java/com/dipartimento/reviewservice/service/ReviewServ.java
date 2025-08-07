@@ -229,4 +229,9 @@ public class ReviewServ {
 
 
 
+    public boolean isUserOrganizer(String token) {
+        return hasRole(token, "ORGANIZER");
+    }
+
+
 }
